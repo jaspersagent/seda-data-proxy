@@ -12,6 +12,11 @@ import {
 	DEFAULT_VERIFICATION_RETRY_DELAY,
 } from "../constants";
 import { replaceParams } from "../utils/replace-params";
+import {
+	type ChainlinkStreamsModuleRoute,
+	ChainlinkStreamsModuleRouteSchema,
+	validateChainlinkStreamsModuleRoute,
+} from "./chainlink-streams-module-config";
 import { type Modules, ModulesSchema } from "./module-config";
 import {
 	type PythLazerModuleRoute,
@@ -99,6 +104,7 @@ const ConfigSchema = v.strictObject(
 			v.variant("type", [
 				UpstreamModuleRouteSchema,
 				PythLazerModuleRouteSchema,
+				ChainlinkStreamsModuleRouteSchema,
 			]),
 		),
 		baseURL: maybe(v.string()),
@@ -127,7 +133,10 @@ const ConfigSchema = v.strictObject(
 );
 
 // export type Route = v.InferOutput<typeof RouteSchema>;
-export type Route = UpstreamModuleRoute | PythLazerModuleRoute;
+export type Route =
+	| UpstreamModuleRoute
+	| PythLazerModuleRoute
+	| ChainlinkStreamsModuleRoute;
 export interface Config extends v.InferOutput<typeof ConfigSchema> {
 	modules: Modules[];
 }
@@ -215,6 +224,11 @@ export const parseConfig = (
 		for (const [index, route] of config.routes.entries()) {
 			if (route.type === "pyth-lazer") {
 				yield* validatePythLazerModuleRoute(route);
+				continue;
+			}
+
+			if (route.type === "chainlink-streams") {
+				yield* validateChainlinkStreamsModuleRoute(route);
 				continue;
 			}
 
@@ -364,6 +378,36 @@ export const parseConfig = (
 				modules.push({
 					...module,
 					pythLazerApiKey,
+				});
+			} else if (module.type === "chainlink-streams") {
+				const apiKey = process.env[module.apiKeyEnvKey];
+				const apiSecret = process.env[module.apiSecretEnvKey];
+
+				if (!apiKey) {
+					return [
+						Result.err(
+							`Module ${module.name} requires ${module.apiKeyEnvKey} to be set`,
+						),
+						hasWarnings,
+					];
+				}
+
+				if (!apiSecret) {
+					return [
+						Result.err(
+							`Module ${module.name} requires ${module.apiSecretEnvKey} to be set`,
+						),
+						hasWarnings,
+					];
+				}
+
+				envSecrets.add(apiKey);
+				envSecrets.add(apiSecret);
+
+				modules.push({
+					...module,
+					apiKey,
+					apiSecret,
 				});
 			}
 		}
