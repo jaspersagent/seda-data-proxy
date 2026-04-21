@@ -6,6 +6,7 @@ import {
 	Effect,
 	HashMap,
 	Layer,
+	Match,
 	MutableHashMap,
 	Option,
 	Runtime,
@@ -46,23 +47,15 @@ export const startProxyServer = (
 
 		// Initialize the modules and start them
 		for (const moduleConfig of config.modules) {
-			let moduleLayer: Layer.Layer<ModuleService, unknown, never>;
-
-			if (moduleConfig.type === "pyth-lazer") {
-				moduleLayer = yield* Layer.memoize(
-					PythLazerModuleService(moduleConfig),
-				);
-			} else if (moduleConfig.type === "chainlink-streams") {
-				moduleLayer = yield* Layer.memoize(
-					ChainlinkStreamsModuleService(moduleConfig),
-				);
-			} else {
-				// Exhaustive-match sentinel: the discriminated union is empty
-				// here. Narrow through `{ type: string }` to read the tag
-				// without `any` (biome lint/suspicious/noExplicitAny).
-				const unknownModule = moduleConfig as { type: string };
-				return yield* Effect.die(`Unknown module type: ${unknownModule.type}`);
-			}
+			const moduleLayer = yield* Match.value(moduleConfig).pipe(
+				Match.when({ type: "pyth-lazer" }, (m) =>
+					Layer.memoize(PythLazerModuleService(m)),
+				),
+				Match.when({ type: "chainlink-streams" }, (m) =>
+					Layer.memoize(ChainlinkStreamsModuleService(m)),
+				),
+				Match.exhaustive,
+			);
 
 			yield* Effect.gen(function* () {
 				const moduleService = yield* ModuleService;
