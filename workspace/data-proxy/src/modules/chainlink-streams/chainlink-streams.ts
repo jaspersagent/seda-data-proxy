@@ -7,21 +7,15 @@ import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
 import { FailedToHandleChainlinkStreamsRequestError } from "./errors";
 
-// Upstream request timeout — mirrors the resilience posture of the Pyth
-// Lazer SDK's internal timeouts. Avoids stalling a proxy request forever
-// when the Chainlink Data Streams endpoint hangs.
 const FETCH_TIMEOUT_MS = 15_000;
 
 /**
  * Generate HMAC authentication headers for Chainlink Data Streams API.
  *
- * The signature is computed as:
  * stringToSign = "${method} ${path} ${bodyHash} ${apiKey} ${timestamp}"
  * signature = HMAC-SHA256(apiSecret, stringToSign)
  *
- * `timestamp` is passed in (rather than read via `Date.now()` here) so the
- * caller can source it from Effect's Clock — matches pyth-lazer's use of
- * `Clock.currentTimeMillis` and keeps the signing step mockable in tests.
+ * `timestamp` is a parameter so tests can inject a fixed value.
  */
 function generateHmacAuth(
 	apiKey: string,
@@ -35,13 +29,8 @@ function generateHmacAuth(
 	timestamp: string;
 	signature: string;
 } {
-	// Hash the body (empty string for GET requests)
 	const bodyHash = crypto.createHash("sha256").update(body).digest("hex");
-
-	// Create the string to sign: "METHOD PATH BODYHASH APIKEY TIMESTAMP"
 	const stringToSign = `${method} ${path} ${bodyHash} ${apiKey} ${timestamp}`;
-
-	// Generate HMAC-SHA256 signature
 	const signature = crypto
 		.createHmac("sha256", apiSecret)
 		.update(stringToSign)
@@ -86,16 +75,12 @@ export const ChainlinkStreamsModuleService = (
 						);
 					}
 
-					// Build the upstream path with params replaced
 					const upstreamPathBase = replaceParams(route.upstreamPath, params);
-
-					// Get query params from the original request and append to path
 					const requestUrl = new URL(request.url);
 					const queryString = requestUrl.search; // includes the '?' if present
 					const upstreamPath = `${upstreamPathBase}${queryString}`;
 					const fullUrl = `${config.baseUrl}${upstreamPath}`;
 
-					// Get request body - clone the request to read the body
 					const body =
 						request.method === "GET"
 							? ""
@@ -108,12 +93,9 @@ export const ChainlinkStreamsModuleService = (
 										}),
 								});
 
-					// Source timestamp from Effect's Clock for testability (parity
-					// with pyth-lazer's `Clock.currentTimeMillis` usage).
 					const nowMs = yield* Clock.currentTimeMillis;
 					const timestamp = nowMs.toString();
 
-					// Generate HMAC authentication
 					const auth = generateHmacAuth(
 						config.chainlinkKey,
 						config.chainlinkApiSecret,
@@ -129,8 +111,6 @@ export const ChainlinkStreamsModuleService = (
 						path: upstreamPath,
 					});
 
-					// Make the authenticated request with a hard timeout so a
-					// hanging upstream can't stall the proxy.
 					const response = yield* Effect.tryPromise({
 						try: () => {
 							const controller = new AbortController();
@@ -179,8 +159,7 @@ export const ChainlinkStreamsModuleService = (
 						});
 					}
 
-					// Preserve the upstream Content-Type so error bodies (often
-					// text/plain) are not mis-labelled as application/json.
+					// Preserve upstream Content-Type: error bodies are often text/plain.
 					const upstreamContentType =
 						response.headers.get("content-type") ?? "application/json";
 
@@ -193,11 +172,6 @@ export const ChainlinkStreamsModuleService = (
 				}).pipe(
 					Effect.withSpan("handleChainlinkStreamsRequest"),
 					Effect.catchAll((error) => {
-						// Both error branches
-						// (`FailedToHandleChainlinkStreamsRequestError`,
-						// `FailedToHandleRequest`) carry a `status` field — the
-						// latter defaults to 500 on construction. Matches
-						// pyth-lazer's `createErrorResponse(error, error.status)`.
 						return Effect.succeed(createErrorResponse(error, error.status));
 					}),
 				);
