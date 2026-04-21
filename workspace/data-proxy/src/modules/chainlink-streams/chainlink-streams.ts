@@ -41,12 +41,10 @@ export const ChainlinkStreamsModuleService = (
 						);
 					}
 
-					const url = new URL(
-						replaceParams(route.upstreamPath, params),
-						config.baseUrl,
-					);
-					url.search = new URL(request.url).search;
-					const signedPath = `${url.pathname}${url.search}`;
+					const signedPath =
+						replaceParams(route.upstreamPath, params) +
+						new URL(request.url).search;
+					const upstreamUrl = new URL(signedPath, config.baseUrl);
 
 					let body = "";
 					if (request.method !== "GET") {
@@ -73,14 +71,14 @@ export const ChainlinkStreamsModuleService = (
 					);
 
 					yield* Effect.logDebug("Making Chainlink Streams request", {
-						url: url.toString(),
+						url: upstreamUrl.toString(),
 						method: request.method,
 						path: signedPath,
 					});
 
 					const response = yield* Effect.tryPromise({
 						try: () =>
-							fetch(url, {
+							fetch(upstreamUrl, {
 								method: request.method,
 								headers: {
 									"Content-Type": "application/json",
