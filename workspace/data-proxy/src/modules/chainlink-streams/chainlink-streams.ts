@@ -1,16 +1,11 @@
 import crypto from "node:crypto";
-import { Clock, Data, Effect, Layer } from "effect";
+import { Clock, Effect, Layer } from "effect";
 import type { Route } from "../../config/config-parser";
 import type { ChainlinkStreamsModuleConfig } from "../../config/chainlink-streams-module-config";
 import { createErrorResponse } from "../../controllers/create-error-response";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
-
-export class ChainlinkStreamsError extends Data.TaggedError(
-	"ChainlinkStreamsError",
-)<{ error: string; status: number }> {
-	message = `Chainlink Streams error: ${this.error}`;
-}
+import { FailedToHandleChainlinkStreamsRequestError } from "./errors";
 
 // Upstream request timeout — mirrors the resilience posture of the Pyth
 // Lazer SDK's internal timeouts. Avoids stalling a proxy request forever
@@ -103,7 +98,7 @@ export const ChainlinkStreamsModuleService = (
 					// Get request body - clone the request to read the body
 					const body = request.method === "GET" ? "" : yield* Effect.tryPromise({
 						try: () => request.clone().text(),
-						catch: () => new ChainlinkStreamsError({ error: "Failed to read request body", status: 400 }),
+						catch: () => new FailedToHandleChainlinkStreamsRequestError({ error: "Failed to read request body", status: 400 }),
 					});
 
 					// Source timestamp from Effect's Clock for testability (parity
@@ -113,8 +108,8 @@ export const ChainlinkStreamsModuleService = (
 
 					// Generate HMAC authentication
 					const auth = generateHmacAuth(
-						config.apiKey,
-						config.apiSecret,
+						config.chainlinkKey,
+						config.chainlinkApiSecret,
 						request.method,
 						upstreamPath,
 						body,
@@ -152,7 +147,7 @@ export const ChainlinkStreamsModuleService = (
 						catch: (error) => {
 							const isAbort =
 								error instanceof Error && error.name === "AbortError";
-							return new ChainlinkStreamsError({
+							return new FailedToHandleChainlinkStreamsRequestError({
 								error: isAbort
 									? `Chainlink Streams request timed out after ${FETCH_TIMEOUT_MS}ms`
 									: `Failed to fetch from Chainlink: ${error}`,
@@ -164,7 +159,7 @@ export const ChainlinkStreamsModuleService = (
 					const responseBody = yield* Effect.tryPromise({
 						try: () => response.text(),
 						catch: (error) =>
-							new ChainlinkStreamsError({
+							new FailedToHandleChainlinkStreamsRequestError({
 								error: `Failed to read response: ${error}`,
 								status: 500,
 							}),
@@ -191,7 +186,8 @@ export const ChainlinkStreamsModuleService = (
 				}).pipe(
 					Effect.withSpan("handleChainlinkStreamsRequest"),
 					Effect.catchAll((error) => {
-						// Both error branches (`ChainlinkStreamsError`,
+						// Both error branches
+						// (`FailedToHandleChainlinkStreamsRequestError`,
 						// `FailedToHandleRequest`) carry a `status` field — the
 						// latter defaults to 500 on construction. Matches
 						// pyth-lazer's `createErrorResponse(error, error.status)`.

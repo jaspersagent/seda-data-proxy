@@ -380,34 +380,35 @@ export const parseConfig = (
 					pythLazerApiKey,
 				});
 			} else if (module.type === "chainlink-streams") {
-				const apiKey = process.env[module.apiKeyEnvKey];
-				const apiSecret = process.env[module.apiSecretEnvKey];
+				const chainlinkKey = process.env[module.chainlinkKeyEnvKey];
+				const chainlinkApiSecret =
+					process.env[module.chainlinkApiSecretEnvKey];
 
-				if (!apiKey) {
+				if (!chainlinkKey) {
 					return [
 						Result.err(
-							`Module ${module.name} requires ${module.apiKeyEnvKey} to be set`,
+							`Module ${module.type} requires ${module.chainlinkKeyEnvKey} to be set`,
 						),
 						hasWarnings,
 					];
 				}
 
-				if (!apiSecret) {
+				if (!chainlinkApiSecret) {
 					return [
 						Result.err(
-							`Module ${module.name} requires ${module.apiSecretEnvKey} to be set`,
+							`Module ${module.type} requires ${module.chainlinkApiSecretEnvKey} to be set`,
 						),
 						hasWarnings,
 					];
 				}
 
-				envSecrets.add(apiKey);
-				envSecrets.add(apiSecret);
+				envSecrets.add(chainlinkKey);
+				envSecrets.add(chainlinkApiSecret);
 
 				modules.push({
 					...module,
-					apiKey,
-					apiSecret,
+					chainlinkKey,
+					chainlinkApiSecret,
 				});
 			}
 		}

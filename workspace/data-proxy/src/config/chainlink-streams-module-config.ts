@@ -2,22 +2,25 @@ import { Effect } from "effect";
 import * as v from "valibot";
 import { RouteSchema } from "./route-config";
 
-// Module config for chainlink-streams in the "modules" array
+// Module config for chainlink-streams in the "modules" array.
+//
+// Naming mirrors pyth-lazer: env-var keys are required, resolved secret
+// values land on the runtime interface. `baseUrl` is ALSO required — unlike
+// an SDK-managed upstream (pyth), Chainlink exposes both testnet and
+// mainnet endpoints and picking the wrong one silently is a production
+// footgun. Fail loud if it's not configured.
 export const ChainlinkStreamsModuleConfigSchema = v.strictObject({
 	name: v.string(),
 	type: v.literal("chainlink-streams"),
-	apiKeyEnvKey: v.optional(v.string(), "CHAINLINK_STREAMS_API_KEY"),
-	apiSecretEnvKey: v.optional(v.string(), "CHAINLINK_STREAMS_API_SECRET"),
-	baseUrl: v.optional(
-		v.string(),
-		"https://api.testnet-dataengine.chain.link",
-	),
+	chainlinkKeyEnvKey: v.string(),
+	chainlinkApiSecretEnvKey: v.string(),
+	baseUrl: v.string(),
 });
 
 export interface ChainlinkStreamsModuleConfig
 	extends v.InferOutput<typeof ChainlinkStreamsModuleConfigSchema> {
-	apiKey: string;
-	apiSecret: string;
+	chainlinkKey: string;
+	chainlinkApiSecret: string;
 }
 
 // Route config for chainlink-streams routes
