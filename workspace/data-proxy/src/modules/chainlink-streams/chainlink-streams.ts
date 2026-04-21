@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { Clock, Effect, Layer } from "effect";
+import { Clock, Duration, Effect, Layer } from "effect";
 import type { ChainlinkStreamsModuleConfig } from "../../config/chainlink-streams-module-config";
 import type { Route } from "../../config/config-parser";
 import { createErrorResponse } from "../../controllers/create-error-response";
@@ -112,13 +112,8 @@ export const ChainlinkStreamsModuleService = (
 					});
 
 					const response = yield* Effect.tryPromise({
-						try: () => {
-							const controller = new AbortController();
-							const timeoutId = setTimeout(
-								() => controller.abort(),
-								FETCH_TIMEOUT_MS,
-							);
-							return fetch(fullUrl, {
+						try: (signal) =>
+							fetch(fullUrl, {
 								method: request.method,
 								headers: {
 									"Content-Type": "application/json",
@@ -128,20 +123,23 @@ export const ChainlinkStreamsModuleService = (
 									"X-Authorization-Signature-SHA256": auth.signature,
 								},
 								body: body || undefined,
-								signal: controller.signal,
-							}).finally(() => clearTimeout(timeoutId));
-						},
-						catch: (error) => {
-							const isAbort =
-								error instanceof Error && error.name === "AbortError";
-							return new FailedToHandleChainlinkStreamsRequestError({
-								error: isAbort
-									? `Chainlink Streams request timed out after ${FETCH_TIMEOUT_MS}ms`
-									: `Failed to fetch from Chainlink: ${error}`,
-								status: isAbort ? 504 : 502,
-							});
-						},
-					});
+								signal,
+							}),
+						catch: (error) =>
+							new FailedToHandleChainlinkStreamsRequestError({
+								error: `Failed to fetch from Chainlink: ${error}`,
+								status: 502,
+							}),
+					}).pipe(
+						Effect.timeoutFail({
+							duration: Duration.millis(FETCH_TIMEOUT_MS),
+							onTimeout: () =>
+								new FailedToHandleChainlinkStreamsRequestError({
+									error: `Chainlink Streams request timed out after ${FETCH_TIMEOUT_MS}ms`,
+									status: 504,
+								}),
+						}),
+					);
 
 					const responseBody = yield* Effect.tryPromise({
 						try: () => response.text(),
