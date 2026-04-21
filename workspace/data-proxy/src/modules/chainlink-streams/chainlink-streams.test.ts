@@ -1,29 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import crypto from "node:crypto";
 import * as v from "valibot";
 import { ChainlinkStreamsModuleConfigSchema } from "../../config/chainlink-streams-module-config";
 import { FailedToHandleChainlinkStreamsRequestError } from "./errors";
+import { generateHmacAuth } from "./hmac-auth";
 
-// Reference implementation of the Chainlink Data Streams HMAC signing scheme.
-// Spec: https://docs.chain.link/data-streams/reference/data-streams-api/authentication
-function referenceGenerateHmacAuth(
-	apiKey: string,
-	apiSecret: string,
-	method: string,
-	path: string,
-	body: string,
-	timestamp: string,
-) {
-	const bodyHash = crypto.createHash("sha256").update(body).digest("hex");
-	const stringToSign = `${method} ${path} ${bodyHash} ${apiKey} ${timestamp}`;
-	const signature = crypto
-		.createHmac("sha256", apiSecret)
-		.update(stringToSign)
-		.digest("hex");
-	return { authorization: apiKey, timestamp, signature };
-}
-
-describe("chainlink-streams HMAC auth", () => {
+describe("generateHmacAuth", () => {
 	it("produces a deterministic SHA256 HMAC for a known GET request", () => {
 		const apiKey = "test-api-key-uuid";
 		const apiSecret = "test-api-secret";
@@ -32,7 +13,7 @@ describe("chainlink-streams HMAC auth", () => {
 		const body = "";
 		const timestamp = "1700000000000";
 
-		const result = referenceGenerateHmacAuth(
+		const result = generateHmacAuth(
 			apiKey,
 			apiSecret,
 			method,
@@ -45,7 +26,7 @@ describe("chainlink-streams HMAC auth", () => {
 		expect(result.authorization).toBe(apiKey);
 		expect(result.timestamp).toBe(timestamp);
 
-		const second = referenceGenerateHmacAuth(
+		const second = generateHmacAuth(
 			apiKey,
 			apiSecret,
 			method,
@@ -57,15 +38,8 @@ describe("chainlink-streams HMAC auth", () => {
 	});
 
 	it("produces different signatures when the timestamp changes", () => {
-		const base = referenceGenerateHmacAuth(
-			"k",
-			"s",
-			"GET",
-			"/x",
-			"",
-			"1700000000000",
-		);
-		const shifted = referenceGenerateHmacAuth(
+		const base = generateHmacAuth("k", "s", "GET", "/x", "", "1700000000000");
+		const shifted = generateHmacAuth(
 			"k",
 			"s",
 			"GET",
@@ -77,15 +51,8 @@ describe("chainlink-streams HMAC auth", () => {
 	});
 
 	it("produces different signatures when the path changes", () => {
-		const base = referenceGenerateHmacAuth(
-			"k",
-			"s",
-			"GET",
-			"/x",
-			"",
-			"1700000000000",
-		);
-		const shifted = referenceGenerateHmacAuth(
+		const base = generateHmacAuth("k", "s", "GET", "/x", "", "1700000000000");
+		const shifted = generateHmacAuth(
 			"k",
 			"s",
 			"GET",
@@ -97,15 +64,8 @@ describe("chainlink-streams HMAC auth", () => {
 	});
 
 	it("hashes the body for POST requests (empty body vs non-empty differs)", () => {
-		const empty = referenceGenerateHmacAuth(
-			"k",
-			"s",
-			"POST",
-			"/x",
-			"",
-			"1700000000000",
-		);
-		const withBody = referenceGenerateHmacAuth(
+		const empty = generateHmacAuth("k", "s", "POST", "/x", "", "1700000000000");
+		const withBody = generateHmacAuth(
 			"k",
 			"s",
 			"POST",

@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import { Clock, Duration, Effect, Layer } from "effect";
 import type { ChainlinkStreamsModuleConfig } from "../../config/chainlink-streams-module-config";
 import type { Route } from "../../config/config-parser";
@@ -6,42 +5,9 @@ import { createErrorResponse } from "../../controllers/create-error-response";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
 import { FailedToHandleChainlinkStreamsRequestError } from "./errors";
+import { generateHmacAuth } from "./hmac-auth";
 
 const FETCH_TIMEOUT_MS = 15_000;
-
-/**
- * Generate HMAC authentication headers for Chainlink Data Streams API.
- *
- * stringToSign = "${method} ${path} ${bodyHash} ${apiKey} ${timestamp}"
- * signature = HMAC-SHA256(apiSecret, stringToSign)
- *
- * `timestamp` is a parameter so tests can inject a fixed value.
- */
-function generateHmacAuth(
-	apiKey: string,
-	apiSecret: string,
-	method: string,
-	path: string,
-	body: string,
-	timestamp: string,
-): {
-	authorization: string;
-	timestamp: string;
-	signature: string;
-} {
-	const bodyHash = crypto.createHash("sha256").update(body).digest("hex");
-	const stringToSign = `${method} ${path} ${bodyHash} ${apiKey} ${timestamp}`;
-	const signature = crypto
-		.createHmac("sha256", apiSecret)
-		.update(stringToSign)
-		.digest("hex");
-
-	return {
-		authorization: apiKey,
-		timestamp,
-		signature,
-	};
-}
 
 export const ChainlinkStreamsModuleService = (
 	config: ChainlinkStreamsModuleConfig,
