@@ -381,8 +381,7 @@ export const parseConfig = (
 				});
 			} else if (module.type === "chainlink-streams") {
 				const chainlinkKey = process.env[module.chainlinkKeyEnvKey];
-				const chainlinkApiSecret =
-					process.env[module.chainlinkApiSecretEnvKey];
+				const chainlinkApiSecret = process.env[module.chainlinkApiSecretEnvKey];
 
 				if (!chainlinkKey) {
 					return [

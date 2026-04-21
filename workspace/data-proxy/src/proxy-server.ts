@@ -57,7 +57,11 @@ export const startProxyServer = (
 					ChainlinkStreamsModuleService(moduleConfig),
 				);
 			} else {
-				return yield* Effect.die(`Unknown module type: ${(moduleConfig as any).type}`);
+				// Exhaustive-match sentinel: the discriminated union is empty
+				// here. Narrow through `{ type: string }` to read the tag
+				// without `any` (biome lint/suspicious/noExplicitAny).
+				const unknownModule = moduleConfig as { type: string };
+				return yield* Effect.die(`Unknown module type: ${unknownModule.type}`);
 			}
 
 			yield* Effect.gen(function* () {

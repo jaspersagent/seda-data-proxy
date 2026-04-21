@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { Clock, Effect, Layer } from "effect";
-import type { Route } from "../../config/config-parser";
 import type { ChainlinkStreamsModuleConfig } from "../../config/chainlink-streams-module-config";
+import type { Route } from "../../config/config-parser";
 import { createErrorResponse } from "../../controllers/create-error-response";
 import { replaceParams } from "../../utils/replace-params";
 import { FailedToHandleRequest, ModuleService } from "../module";
@@ -96,10 +96,17 @@ export const ChainlinkStreamsModuleService = (
 					const fullUrl = `${config.baseUrl}${upstreamPath}`;
 
 					// Get request body - clone the request to read the body
-					const body = request.method === "GET" ? "" : yield* Effect.tryPromise({
-						try: () => request.clone().text(),
-						catch: () => new FailedToHandleChainlinkStreamsRequestError({ error: "Failed to read request body", status: 400 }),
-					});
+					const body =
+						request.method === "GET"
+							? ""
+							: yield* Effect.tryPromise({
+									try: () => request.clone().text(),
+									catch: () =>
+										new FailedToHandleChainlinkStreamsRequestError({
+											error: "Failed to read request body",
+											status: 400,
+										}),
+								});
 
 					// Source timestamp from Effect's Clock for testability (parity
 					// with pyth-lazer's `Clock.currentTimeMillis` usage).

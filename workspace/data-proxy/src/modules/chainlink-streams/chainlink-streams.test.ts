@@ -1,5 +1,5 @@
-import crypto from "node:crypto";
 import { describe, expect, it } from "bun:test";
+import crypto from "node:crypto";
 import * as v from "valibot";
 import { ChainlinkStreamsModuleConfigSchema } from "../../config/chainlink-streams-module-config";
 import { FailedToHandleChainlinkStreamsRequestError } from "./errors";
@@ -151,9 +151,7 @@ describe("chainlink-streams module config schema", () => {
 			chainlinkApiSecretEnvKey: "CHAINLINK_API_SECRET",
 			baseUrl: "https://api.dataengine.chain.link",
 		};
-		expect(() =>
-			v.parse(ChainlinkStreamsModuleConfigSchema, input),
-		).toThrow();
+		expect(() => v.parse(ChainlinkStreamsModuleConfigSchema, input)).toThrow();
 	});
 
 	it("rejects a config missing chainlinkApiSecretEnvKey (now required)", () => {
@@ -163,9 +161,7 @@ describe("chainlink-streams module config schema", () => {
 			chainlinkKeyEnvKey: "CHAINLINK_KEY",
 			baseUrl: "https://api.dataengine.chain.link",
 		};
-		expect(() =>
-			v.parse(ChainlinkStreamsModuleConfigSchema, input),
-		).toThrow();
+		expect(() => v.parse(ChainlinkStreamsModuleConfigSchema, input)).toThrow();
 	});
 
 	it("rejects a config missing baseUrl (now required; testnet-default removed)", () => {
@@ -175,9 +171,7 @@ describe("chainlink-streams module config schema", () => {
 			chainlinkKeyEnvKey: "CHAINLINK_KEY",
 			chainlinkApiSecretEnvKey: "CHAINLINK_API_SECRET",
 		};
-		expect(() =>
-			v.parse(ChainlinkStreamsModuleConfigSchema, input),
-		).toThrow();
+		expect(() => v.parse(ChainlinkStreamsModuleConfigSchema, input)).toThrow();
 	});
 });
 
