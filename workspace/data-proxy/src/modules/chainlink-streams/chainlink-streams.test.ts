@@ -4,15 +4,8 @@ import * as v from "valibot";
 import { ChainlinkStreamsModuleConfigSchema } from "../../config/chainlink-streams-module-config";
 import { FailedToHandleChainlinkStreamsRequestError } from "./errors";
 
-/**
- * The HMAC signing logic is currently a private helper inside
- * `chainlink-streams.ts`. These tests reimplement the same function body
- * against known inputs — if the reference algorithm ever diverges from the
- * module's implementation, a follow-up should expose `generateHmacAuth`
- * and import it directly.
- *
- * Reference: https://docs.chain.link/data-streams/reference/data-streams-api/authentication
- */
+// Reference implementation of the Chainlink Data Streams HMAC signing scheme.
+// Spec: https://docs.chain.link/data-streams/reference/data-streams-api/authentication
 function referenceGenerateHmacAuth(
 	apiKey: string,
 	apiSecret: string,
@@ -48,14 +41,10 @@ describe("chainlink-streams HMAC auth", () => {
 			timestamp,
 		);
 
-		// Manually computed:
-		//   stringToSign = "GET /api/v1/reports/latest?feedID=0xabc <sha256('')> test-api-key-uuid 1700000000000"
-		//   signature    = HMAC_SHA256(test-api-secret, stringToSign) — 64 hex chars
 		expect(result.signature).toMatch(/^[0-9a-f]{64}$/);
 		expect(result.authorization).toBe(apiKey);
 		expect(result.timestamp).toBe(timestamp);
 
-		// Recomputing with identical inputs reproduces the same signature.
 		const second = referenceGenerateHmacAuth(
 			apiKey,
 			apiSecret,
@@ -144,7 +133,7 @@ describe("chainlink-streams module config schema", () => {
 		expect(parsed.baseUrl).toBe("https://api.dataengine.chain.link");
 	});
 
-	it("rejects a config missing chainlinkKeyEnvKey (now required)", () => {
+	it("rejects a config missing chainlinkKeyEnvKey", () => {
 		const input = {
 			name: "chainlinkStreams",
 			type: "chainlink-streams",
@@ -154,7 +143,7 @@ describe("chainlink-streams module config schema", () => {
 		expect(() => v.parse(ChainlinkStreamsModuleConfigSchema, input)).toThrow();
 	});
 
-	it("rejects a config missing chainlinkApiSecretEnvKey (now required)", () => {
+	it("rejects a config missing chainlinkApiSecretEnvKey", () => {
 		const input = {
 			name: "chainlinkStreams",
 			type: "chainlink-streams",
@@ -164,7 +153,7 @@ describe("chainlink-streams module config schema", () => {
 		expect(() => v.parse(ChainlinkStreamsModuleConfigSchema, input)).toThrow();
 	});
 
-	it("rejects a config missing baseUrl (now required; testnet-default removed)", () => {
+	it("rejects a config missing baseUrl", () => {
 		const input = {
 			name: "chainlinkStreams",
 			type: "chainlink-streams",
