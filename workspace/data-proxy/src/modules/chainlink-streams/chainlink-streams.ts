@@ -47,17 +47,17 @@ export const ChainlinkStreamsModuleService = (
 					const upstreamPath = `${upstreamPathBase}${queryString}`;
 					const fullUrl = `${config.baseUrl}${upstreamPath}`;
 
-					const body =
-						request.method === "GET"
-							? ""
-							: yield* Effect.tryPromise({
-									try: () => request.clone().text(),
-									catch: () =>
-										new FailedToHandleChainlinkStreamsRequestError({
-											error: "Failed to read request body",
-											status: 400,
-										}),
-								});
+					let body = "";
+					if (request.method !== "GET") {
+						body = yield* Effect.tryPromise({
+							try: () => request.clone().text(),
+							catch: () =>
+								new FailedToHandleChainlinkStreamsRequestError({
+									error: "Failed to read request body",
+									status: 400,
+								}),
+						});
+					}
 
 					const nowMs = yield* Clock.currentTimeMillis;
 					const timestamp = nowMs.toString();
