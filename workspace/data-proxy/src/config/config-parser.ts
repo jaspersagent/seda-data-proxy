@@ -1,7 +1,7 @@
 import { Secp256k1 } from "@cosmjs/crypto";
 import { tryParseSync } from "@seda-protocol/utils";
 import { maybe } from "@seda-protocol/utils/valibot";
-import { Effect } from "effect";
+import { Effect, Match } from "effect";
 import type { HTTPMethod } from "elysia";
 import { Result } from "true-myth";
 import * as v from "valibot";
@@ -362,53 +362,40 @@ export const parseConfig = (
 
 		const modules: Modules[] = [];
 
-		// Check if the modules are valid
 		for (const module of config.modules) {
-			if (module.type === "pyth-lazer") {
-				const pythLazerApiKey = process.env[module.pythLazerApiKeyEnvKey];
-				if (!pythLazerApiKey) {
-					return [
-						Result.err(
-							`Module ${module.type} requires ${module.pythLazerApiKeyEnvKey} to be set`,
-						),
-						hasWarnings,
-					];
-				}
+			const error = Match.value(module).pipe(
+				Match.when({ type: "pyth-lazer" }, (m) => {
+					const pythLazerApiKey = process.env[m.pythLazerApiKeyEnvKey];
+					if (!pythLazerApiKey) {
+						return `Module ${m.type} requires ${m.pythLazerApiKeyEnvKey} to be set`;
+					}
 
-				modules.push({
-					...module,
-					pythLazerApiKey,
-				});
-			} else if (module.type === "chainlink-streams") {
-				const chainlinkKey = process.env[module.chainlinkKeyEnvKey];
-				const chainlinkApiSecret = process.env[module.chainlinkApiSecretEnvKey];
+					modules.push({ ...m, pythLazerApiKey });
+					return null;
+				}),
+				Match.when({ type: "chainlink-streams" }, (m) => {
+					const chainlinkKey = process.env[m.chainlinkKeyEnvKey];
+					const chainlinkApiSecret = process.env[m.chainlinkApiSecretEnvKey];
 
-				if (!chainlinkKey) {
-					return [
-						Result.err(
-							`Module ${module.type} requires ${module.chainlinkKeyEnvKey} to be set`,
-						),
-						hasWarnings,
-					];
-				}
+					if (!chainlinkKey) {
+						return `Module ${m.type} requires ${m.chainlinkKeyEnvKey} to be set`;
+					}
 
-				if (!chainlinkApiSecret) {
-					return [
-						Result.err(
-							`Module ${module.type} requires ${module.chainlinkApiSecretEnvKey} to be set`,
-						),
-						hasWarnings,
-					];
-				}
+					if (!chainlinkApiSecret) {
+						return `Module ${m.type} requires ${m.chainlinkApiSecretEnvKey} to be set`;
+					}
 
-				envSecrets.add(chainlinkKey);
-				envSecrets.add(chainlinkApiSecret);
+					envSecrets.add(chainlinkKey);
+					envSecrets.add(chainlinkApiSecret);
 
-				modules.push({
-					...module,
-					chainlinkKey,
-					chainlinkApiSecret,
-				});
+					modules.push({ ...m, chainlinkKey, chainlinkApiSecret });
+					return null;
+				}),
+				Match.exhaustive,
+			);
+
+			if (error) {
+				return [Result.err(error), hasWarnings];
 			}
 		}
 
