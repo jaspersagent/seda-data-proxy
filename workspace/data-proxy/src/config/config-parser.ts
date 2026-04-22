@@ -1,7 +1,7 @@
 import { Secp256k1 } from "@cosmjs/crypto";
 import { tryParseSync } from "@seda-protocol/utils";
 import { maybe } from "@seda-protocol/utils/valibot";
-import { Effect, Match } from "effect";
+import { Effect, Either, Match } from "effect";
 import type { HTTPMethod } from "elysia";
 import { Result } from "true-myth";
 import * as v from "valibot";
@@ -363,40 +363,51 @@ export const parseConfig = (
 		const modules: Modules[] = [];
 
 		for (const module of config.modules) {
-			const error = Match.value(module).pipe(
-				Match.when({ type: "pyth-lazer" }, (m) => {
-					const pythLazerApiKey = process.env[m.pythLazerApiKeyEnvKey];
-					if (!pythLazerApiKey) {
-						return `Module ${m.type} requires ${m.pythLazerApiKeyEnvKey} to be set`;
-					}
+			const resolved = yield* Effect.either(
+				Match.value(module).pipe(
+					Match.when({ type: "pyth-lazer" }, (m) => {
+						const pythLazerApiKey = process.env[m.pythLazerApiKeyEnvKey];
+						if (!pythLazerApiKey) {
+							return Effect.fail(
+								`Module ${m.type} requires ${m.pythLazerApiKeyEnvKey} to be set`,
+							);
+						}
+						return Effect.succeed({ ...m, pythLazerApiKey } satisfies Modules);
+					}),
+					Match.when({ type: "chainlink-streams" }, (m) => {
+						const chainlinkKey = process.env[m.chainlinkKeyEnvKey];
+						const chainlinkApiSecret =
+							process.env[m.chainlinkApiSecretEnvKey];
 
-					modules.push({ ...m, pythLazerApiKey });
-					return null;
-				}),
-				Match.when({ type: "chainlink-streams" }, (m) => {
-					const chainlinkKey = process.env[m.chainlinkKeyEnvKey];
-					const chainlinkApiSecret = process.env[m.chainlinkApiSecretEnvKey];
+						if (!chainlinkKey) {
+							return Effect.fail(
+								`Module ${m.type} requires ${m.chainlinkKeyEnvKey} to be set`,
+							);
+						}
 
-					if (!chainlinkKey) {
-						return `Module ${m.type} requires ${m.chainlinkKeyEnvKey} to be set`;
-					}
+						if (!chainlinkApiSecret) {
+							return Effect.fail(
+								`Module ${m.type} requires ${m.chainlinkApiSecretEnvKey} to be set`,
+							);
+						}
 
-					if (!chainlinkApiSecret) {
-						return `Module ${m.type} requires ${m.chainlinkApiSecretEnvKey} to be set`;
-					}
+						envSecrets.add(chainlinkKey);
+						envSecrets.add(chainlinkApiSecret);
 
-					envSecrets.add(chainlinkKey);
-					envSecrets.add(chainlinkApiSecret);
-
-					modules.push({ ...m, chainlinkKey, chainlinkApiSecret });
-					return null;
-				}),
-				Match.exhaustive,
+						return Effect.succeed({
+							...m,
+							chainlinkKey,
+							chainlinkApiSecret,
+						} satisfies Modules);
+					}),
+					Match.exhaustive,
+				),
 			);
 
-			if (error) {
-				return [Result.err(error), hasWarnings];
+			if (Either.isLeft(resolved)) {
+				return [Result.err(resolved.left), hasWarnings];
 			}
+			modules.push(resolved.right);
 		}
 
 		if (config.sedaFast?.enable) {
