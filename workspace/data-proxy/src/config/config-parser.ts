@@ -376,8 +376,7 @@ export const parseConfig = (
 					}),
 					Match.when({ type: "chainlink-streams" }, (m) => {
 						const chainlinkKey = process.env[m.chainlinkKeyEnvKey];
-						const chainlinkApiSecret =
-							process.env[m.chainlinkApiSecretEnvKey];
+						const chainlinkApiSecret = process.env[m.chainlinkApiSecretEnvKey];
 
 						if (!chainlinkKey) {
 							return Effect.fail(
