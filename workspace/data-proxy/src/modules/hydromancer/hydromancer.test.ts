@@ -23,14 +23,13 @@ const baseConfig: HydromancerModuleConfig = {
 	hydromancerApiKey: "test-api-key",
 	staleAfter: Duration.seconds(10),
 	subscriptionCoins: [],
-	maxCoinsPerRequest: 20,
+	restBatchSize: 20,
 	reconnectMaxBackoff: Duration.seconds(30),
 	reconnectStableThreshold: Duration.seconds(30),
 	coinsCleanupTtl: Duration.minutes(2),
 	coinsCleanupInterval: Duration.seconds(30),
 	restFetchTimeout: Duration.seconds(15),
 	l2BookSubscriptionCoins: [],
-	l2BookMaxCoinsPerRequest: 20,
 	l2BookWaitTimeout: Duration.seconds(1),
 	l2BookCleanupTtl: Duration.minutes(2),
 	l2BookCleanupInterval: Duration.seconds(30),
@@ -258,17 +257,91 @@ describe("HydromancerModuleService.handleRequest (REST batch path)", () => {
 		expect(response.status).toBe(502);
 	});
 
-	it("rejects when more coins than maxCoinsPerRequest are requested", async () => {
-		const tightConfig: HydromancerModuleConfig = {
+	it("splits a request larger than restBatchSize into concurrent chunks", async () => {
+		const chunkedConfig: HydromancerModuleConfig = {
 			...baseConfig,
-			maxCoinsPerRequest: 2,
+			restBatchSize: 2,
 		};
+		const seenBatches: string[][] = [];
+		// Each chunk blocks on a shared deferred. Resolving only after every
+		// expected chunk has been received proves the fan-out is concurrent;
+		// if the code serialized the calls, the first chunk would never see
+		// the second arrive and the test would hang past its timeout.
+		const allBatchesIn = Promise.withResolvers<void>();
+		const expectedChunks = 3;
 		globalThis.fetch = mock(
-			async () => new Response("{}", { status: 200 }),
+			async (_url: URL | RequestInfo, init?: RequestInit) => {
+				const body = JSON.parse((init?.body as string) ?? "{}");
+				seenBatches.push(body.coins);
+				if (seenBatches.length === expectedChunks) allBatchesIn.resolve();
+				await allBatchesIn.promise;
+				const responseBody: Record<string, typeof btcCtx> = {};
+				for (const coin of body.coins) {
+					if (coin === "BTC") responseBody[coin] = btcCtx;
+					if (coin === "ETH") responseBody[coin] = ethCtx;
+				}
+				return new Response(JSON.stringify(responseBody), { status: 200 });
+			},
 		) as unknown as typeof fetch;
 
-		const response = await callHandle(tightConfig, ["BTC", "ETH", "SOL"]);
-		expect(response.status).toBe(400);
+		const response = await callHandle(chunkedConfig, [
+			"BTC",
+			"ETH",
+			"SOL",
+			"AVAX",
+			"DOGE",
+		]);
+
+		expect(response.status).toBe(200);
+		expect(seenBatches).toEqual([["BTC", "ETH"], ["SOL", "AVAX"], ["DOGE"]]);
+		expect(await response.json()).toEqual({
+			BTC: btcCtx,
+			ETH: ethCtx,
+			SOL: null,
+			AVAX: null,
+			DOGE: null,
+		});
+	});
+
+	it("fails the whole request when one chunk errors, even if other chunks would succeed", async () => {
+		const chunkedConfig: HydromancerModuleConfig = {
+			...baseConfig,
+			restBatchSize: 1,
+		};
+		globalThis.fetch = mock(
+			async (_url: URL | RequestInfo, init?: RequestInit) => {
+				const body = JSON.parse((init?.body as string) ?? "{}");
+				if (body.coins[0] === "ETH") {
+					return new Response("boom", { status: 500 });
+				}
+				return new Response(JSON.stringify({ BTC: btcCtx }), { status: 200 });
+			},
+		) as unknown as typeof fetch;
+
+		const response = await callHandle(chunkedConfig, ["BTC", "ETH"]);
+		expect(response.status).toBe(502);
+	});
+
+	it("accepts an inbound request well over the upstream batch limit", async () => {
+		const seenBatches: string[][] = [];
+		globalThis.fetch = mock(
+			async (_url: URL | RequestInfo, init?: RequestInit) => {
+				const body = JSON.parse((init?.body as string) ?? "{}");
+				seenBatches.push(body.coins);
+				const responseBody: Record<string, typeof btcCtx> = {};
+				for (const coin of body.coins) responseBody[coin] = btcCtx;
+				return new Response(JSON.stringify(responseBody), { status: 200 });
+			},
+		) as unknown as typeof fetch;
+
+		const coins = Array.from({ length: 45 }, (_, i) => `C${i}`);
+		const response = await callHandle(baseConfig, coins);
+
+		expect(response.status).toBe(200);
+		// 45 coins at the default batch size of 20 should split into 20+20+5.
+		expect(seenBatches.map((b) => b.length)).toEqual([20, 20, 5]);
+		const body = (await response.json()) as Record<string, unknown>;
+		expect(Object.keys(body)).toHaveLength(45);
 	});
 });
 
@@ -738,10 +811,11 @@ describe("HydromancerModuleService l2Book flow", () => {
 		expect(await response.json()).toEqual({ BTC: btcSnapshot, ETH: null });
 	});
 
-	it("rejects an l2Book batch larger than l2BookMaxCoinsPerRequest", async () => {
+	it("accepts an l2Book request well past the old per-request cap", async () => {
 		const config: HydromancerModuleConfig = {
 			...baseConfig,
-			l2BookMaxCoinsPerRequest: 1,
+			l2BookSubscriptionCoins: [],
+			l2BookWaitTimeout: Duration.millis(20),
 		};
 
 		const program = Effect.gen(function* () {
@@ -751,19 +825,25 @@ describe("HydromancerModuleService l2Book flow", () => {
 			ws.triggerOpen();
 			yield* Effect.yieldNow();
 
+			const coins = Array.from({ length: 50 }, (_, i) => `C${i}`);
 			const route = buildRoute();
-			return yield* svc.handleRequest(
+			const response = yield* svc.handleRequest(
 				route,
 				{},
-				buildL2BookRequest(["BTC", "ETH"]),
-				l2BookBody(["BTC", "ETH"]),
+				buildL2BookRequest(coins),
+				l2BookBody(coins),
 			);
+			return { response, coins };
 		});
 
-		const response = await runSilently(
+		const { response, coins } = await runSilently(
 			program.pipe(Effect.provide(HydromancerModuleService(config))),
 		);
 
-		expect(response.status).toBe(400);
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as Record<string, unknown>;
+		expect(Object.keys(body)).toHaveLength(coins.length);
+		// No REST fallback exists for l2Book; unseeded coins time out to null.
+		for (const coin of coins) expect(body[coin]).toBeNull();
 	});
 });

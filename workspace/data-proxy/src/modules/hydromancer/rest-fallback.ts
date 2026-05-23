@@ -1,5 +1,5 @@
 import { tryParseSync } from "@seda-protocol/utils";
-import { Duration, Effect } from "effect";
+import { Array as Arr, Duration, Effect } from "effect";
 import * as v from "valibot";
 import {
 	AssetCtxSchema,
@@ -10,6 +10,32 @@ import { FailedToHandleHydromancerRequestError } from "./errors";
 const BatchResponseSchema = v.record(v.string(), v.nullable(AssetCtxSchema));
 
 export type BatchAssetContexts = v.InferOutput<typeof BatchResponseSchema>;
+
+/**
+ * Splits `coins` into chunks of `config.restBatchSize` and fires one upstream
+ * POST per chunk concurrently. Hydromancer's documented batch limit is 20, so
+ * the proxy stays under it regardless of how many coins the caller passes.
+ * The first chunk to fail short-circuits the rest; partial successes are not
+ * returned.
+ */
+export const fetchAssetContextsFromRestBatched = (
+	config: HydromancerModuleConfig,
+	coins: string[],
+): Effect.Effect<BatchAssetContexts, FailedToHandleHydromancerRequestError> => {
+	if (coins.length === 0) return Effect.succeed({} as BatchAssetContexts);
+	const chunks = Arr.chunksOf(coins, Math.max(1, config.restBatchSize));
+	return Effect.all(
+		chunks.map((chunk) => fetchAssetContextsFromRest(config, chunk)),
+		{ concurrency: "unbounded" },
+	).pipe(
+		Effect.map(
+			(batches) => Object.assign({}, ...batches) as BatchAssetContexts,
+		),
+		Effect.withSpan("fetchAssetContextsFromRestBatched", {
+			attributes: { coinCount: coins.length, chunkCount: chunks.length },
+		}),
+	);
+};
 
 export const fetchAssetContextsFromRest = (
 	config: HydromancerModuleConfig,

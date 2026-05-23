@@ -12,7 +12,7 @@ import { FailedToHandleRequest, ModuleService } from "../module";
 import { createFreshnessCache } from "../shared/freshness-cache";
 import { createPriceCache } from "../shared/price-cache";
 import { FailedToHandleHydromancerRequestError } from "./errors";
-import { fetchAssetContextsFromRest } from "./rest-fallback";
+import { fetchAssetContextsFromRestBatched } from "./rest-fallback";
 import { type HydromancerChannel, createHydromancerWS } from "./ws-client";
 
 export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
@@ -100,24 +100,18 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 			// idempotent and the daemon runs for the process lifetime.
 			const start = () => Effect.asVoid(ws.start());
 
-			// Shared prologue for both request flows: bound the batch, stamp the
-			// last-request time, subscribe every coin, and pre-seed the response
-			// so the shape matches Hydromancer's native /info (one key per coin).
+			// Shared prologue for both request flows: stamp the last-request time,
+			// subscribe every coin, and pre-seed the response so the shape matches
+			// Hydromancer's native /info (one key per coin). No inbound size cap;
+			// the assetContext REST fan-out splits into chunks of `restBatchSize`
+			// at fetch time, and l2Book has no REST so the coin list passes
+			// straight to the per-coin WS waiter.
 			const prepareRequest = <V>(
 				coins: string[],
-				max: number,
 				channel: HydromancerChannel,
 				lastRequest: MutableHashMap.MutableHashMap<string, number>,
 			) =>
 				Effect.gen(function* () {
-					if (coins.length > max) {
-						return yield* Effect.fail(
-							new FailedToHandleHydromancerRequestError({
-								error: `Too many coins, max is ${max} but got ${coins.length}`,
-								status: 400,
-							}),
-						);
-					}
 					const now = yield* Clock.currentTimeMillis;
 					for (const coin of coins) {
 						yield* ws.subscribe(channel, coin);
@@ -132,7 +126,6 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 				Effect.gen(function* () {
 					const { now, resolved } = yield* prepareRequest<AssetCtx>(
 						coins,
-						config.maxCoinsPerRequest,
 						"activeAssetCtx",
 						lastRequestToCoin,
 					);
@@ -151,7 +144,7 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 					}
 
 					if (toFetch.length > 0) {
-						const restBatch = yield* fetchAssetContextsFromRest(
+						const restBatch = yield* fetchAssetContextsFromRestBatched(
 							config,
 							toFetch,
 						);
@@ -178,7 +171,6 @@ export const HydromancerModuleService = (config: HydromancerModuleConfig) =>
 				Effect.gen(function* () {
 					const { resolved } = yield* prepareRequest<BookSnapshot>(
 						coins,
-						config.l2BookMaxCoinsPerRequest,
 						"l2Book",
 						lastRequestToBookCoin,
 					);

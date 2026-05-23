@@ -19,7 +19,12 @@ export const HydromancerModuleConfigSchema = v.strictObject({
 		),
 	),
 	subscriptionCoins: v.optional(v.array(v.string()), []),
-	maxCoinsPerRequest: v.optional(v.number(), 20),
+	/**
+	 * Maximum coins per upstream REST batch. The fallback chunks any request
+	 * into groups of this size and fires the chunks concurrently. Hydromancer's
+	 * documented batch limit is 20.
+	 */
+	restBatchSize: v.optional(v.number(), 20),
 	reconnectMaxBackoff: v.pipe(
 		v.optional(v.union([v.number(), v.string()]), "30 seconds"),
 		v.transform((value) =>
@@ -66,7 +71,6 @@ export const HydromancerModuleConfigSchema = v.strictObject({
 		),
 	),
 	l2BookSubscriptionCoins: v.optional(v.array(v.string()), []),
-	l2BookMaxCoinsPerRequest: v.optional(v.number(), 20),
 	l2BookNSigFigs: v.optional(v.number()),
 	l2BookWaitTimeout: v.pipe(
 		v.optional(v.union([v.number(), v.string()]), "1 second"),
