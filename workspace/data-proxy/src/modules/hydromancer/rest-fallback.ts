@@ -42,6 +42,13 @@ export const fetchAssetContextsFromRest = (
 	coins: string[],
 ): Effect.Effect<BatchAssetContexts, FailedToHandleHydromancerRequestError> =>
 	Effect.gen(function* () {
+		// One log line per upstream POST so operators can tally REST fallback
+		// usage by grepping for "hydromancer.rest.call" without OTLP plumbing.
+		yield* Effect.logInfo("hydromancer.rest.call", {
+			coins,
+			count: coins.length,
+		});
+
 		const url = new URL("/info", config.restBaseUrl);
 		const timeoutMs = Duration.toMillis(config.restFetchTimeout);
 
